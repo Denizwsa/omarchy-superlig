@@ -388,6 +388,17 @@ Panel {
 
         root.matches = mOut;
         root.standings = sOut;
+        // Learn favourite team names from this table so news queries work
+        // before onboarding stores display names.
+        var idMap = {};
+        for (var t = 0; t < sOut.length; t++) idMap[sOut[t].teamId] = sOut[t].team;
+        var changed = false;
+        var ids = root.favorites.slice(), names = root.favoriteNames.slice();
+        for (var k = 0; k < ids.length; k++) {
+          var known = idMap[ids[k]];
+          if (known && names[k] !== known) { names[k] = known; changed = true; }
+        }
+        if (changed) { root.favoriteNames = names; root.saveState(); }
         root.season = Model.clean(parsed.season, 16);
         root.errorText = "";
         root.lastUpdated = Model.nowTime();
@@ -654,8 +665,15 @@ Panel {
   property bool articleLoading: false
   property string articleError: ""
 
+  function isUuidish(v) { return /^[0-9a-z]{20,40}$/.test(v); }
+
   function refreshNews() {
-    var query = root.ntMode ? Model.ntMkName(root.ntCode) : (root.favorites.length > 0 && root.favoriteNames.length > 0 ? root.favoriteNames[0] : (root.ntFavorite ? Model.ntMkName(root.ntFavorite) : Model.leagueShort(root.leagueId)));
+    var favQuery = (root.favorites.length > 0 && root.favoriteNames.length > 0) ? root.favoriteNames[0] : "";
+    var query;
+    if (root.ntMode) query = Model.ntMkName(root.ntCode);
+    else if (favQuery && !isUuidish(favQuery)) query = favQuery;
+    else if (root.ntFavorite) query = Model.ntMkName(root.ntFavorite);
+    else query = Model.leagueShort(root.leagueId);
     if (!query) return;
     newsLoading = true;
     newsProc.command = ["/usr/bin/python3", root.backendPath, "news", query];
