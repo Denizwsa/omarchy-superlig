@@ -692,7 +692,8 @@ Panel {
           var it = raw[i];
           if (!it) continue;
           var link = String(it.link || "");
-          if (link.indexOf("https://news.google.com/") !== 0) continue;
+          var lc = link.toLowerCase();
+          if (lc.indexOf("https://www.mackolik.com/") !== 0 && lc.indexOf("https://arsiv.mackolik.com/") !== 0) continue;
           out.push({
             title: Model.clean(it.title, 160),
             link: link,
