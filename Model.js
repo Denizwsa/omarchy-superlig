@@ -111,11 +111,13 @@ var leagues = [
   { id: "3frp1zxrqulrlrnk503n6l4l", name: "EFL League One", short: "League One" },
   { id: "bgen5kjer2ytfp7lo9949t72g", name: "EFL League Two", short: "League Two" },
   { id: "34pl8szyvrbwcmfkuocjm3r6t", name: "LaLiga", short: "LaLiga" },
+  { id: "3is4bkgf3loxv9qfg3hm8zfqb", name: "LaLiga 2", short: "LaLiga 2" },
   { id: "1r097lpxe0xn03ihb7wi98kao", name: "Serie A", short: "Serie A" },
   { id: "6by3h89i2eykc341oz7lv1ddd", name: "Bundesliga", short: "Bundesliga" },
   { id: "722fdbecxzcq9788l6jqclzlw", name: "2. Bundesliga", short: "2. Bundesliga" },
   { id: "dm5ka0os1e3dxcp3vh05kmp33", name: "Ligue 1", short: "Ligue 1" },
   { id: "akmkihra9ruad09ljapsm84b3", name: "Eredivisie", short: "Eredivisie" },
+  { id: "1gwajyt0pk2jm5fx5mu36v114", name: "Eerste Divisie", short: "Eerste Divisie" },
   { id: "8yi6ejjd1zudcqtbn07haahg6", name: "Liga Portugal", short: "Primeira Liga" },
   { id: "4oogyu6o156iphvdvphwpck10", name: "UEFA Şampiyonlar Ligi", short: "Şampiyonlar Ligi" },
   { id: "4c1nfi2j1m731hcay25fcgndq", name: "UEFA Avrupa Ligi", short: "Avrupa Ligi" },
@@ -132,3 +134,87 @@ function leagueShort(id) {
     if (leagues[i].id === id) return leagues[i].short;
   return id;
 }
+
+// ---- Onboarding / language ------------------------------------------
+
+// Omarchy's 50 registry codes + flag files for onboarding national-team grid.
+var languageNames = {
+  "en": "English", "ar": "العربية", "bg": "Български", "bn": "বাংলা", "ca": "Català",
+  "cs": "Čeština", "da": "Dansk", "de": "Deutsch", "el": "Ελληνικά", "es-MX": "Español (MX)",
+  "et": "Eesti", "fa": "فارسی", "fi": "Suomi", "fil": "Filipino", "fr": "Français",
+  "ga": "Gaeilge", "he": "עברית", "hi": "हिन्दी", "hr": "Hrvatski", "hu": "Magyar",
+  "id": "Indonesia", "is": "Íslenska", "it": "Italiano", "ja": "日本語", "ko": "한국어",
+  "lt": "Lietuvių", "lv": "Latviešu", "ms": "Bahasa Melayu", "nl": "Nederlands", "no": "Norsk",
+  "pl": "Polski", "pt": "Português", "pt-BR": "Português (BR)", "ro": "Română", "ru": "Русский",
+  "si": "සිංහල", "sk": "Slovenčina", "sl": "Slovenščina", "sr": "Srpski", "sv": "Svenska",
+  "sw": "Kiswahili", "ta": "தமிழ்", "th": "ไทย", "tr": "Türkçe", "uk": "Українська",
+  "ur": "اردو", "uz": "O‘zbek", "vi": "Tiếng Việt", "zh-CN": "简体中文", "zh-TW": "繁體中文"
+};
+
+// Leagues ordered to front for each language, most football-adjacent first.
+var LANGUAGE_PRIORITY = {
+  "tr": ["482ofyysbdbeoxauk19yg7tdt", "2o9svokc5s7diish3ycrzk7jm", "2nttcoriwf5co73vmz1vr8frm", "907l7wtxdvugdo9i2249wcmr0"],
+  "en": ["2kwbbcootiqqgmrzs6o5inle5", "7ntvbsyq31jnzoqoa8850b9b8", "3frp1zxrqulrlrnk503n6l4l", "bgen5kjer2ytfp7lo9949t72g"],
+  "pt": ["8yi6ejjd1zudcqtbn07haahg6", "34pl8szyvrbwcmfkuocjm3r6t", "1r097lpxe0xn03ihb7wi98kao"],
+  "pt-BR": ["8yi6ejjd1zudcqtbn07haahg6", "34pl8szyvrbwcmfkuocjm3r6t", "6by3h89i2eykc341oz7lv1ddd"],
+  "es-MX": ["34pl8szyvrbwcmfkuocjm3r6t", "482ofyysbdbeoxauk19yg7tdt", "1r097lpxe0xn03ihb7wi98kao"],
+  "it": ["1r097lpxe0xn03ihb7wi98kao", "34pl8szyvrbwcmfkuocjm3r6t", "6by3h89i2eykc341oz7lv1ddd", "dm5ka0os1e3dxcp3vh05kmp33"],
+  "de": ["6by3h89i2eykc341oz7lv1ddd", "722fdbecxzcq9788l6jqclzlw", "dkarmrybx9vx10rg7cywumth0", "482ofyysbdbeoxauk19yg7tdt"],
+  "fr": ["dm5ka0os1e3dxcp3vh05kmp33", "nomyihforrpqj84kx7ts42cq1", "6by3h89i2eykc341oz7lv1ddd", "1r097lpxe0xn03ihb7wi98kao"],
+  "nl": ["akmkihra9ruad09ljapsm84b3", "1gwajyt0pk2jm5fx5mu36v114", "6by3h89i2eykc341oz7lv1ddd", "2kwbbcootiqqgmrzs6o5inle5"]
+};
+// Turkish Süper Lig ids used as fallback priority for latin/arabic etc.
+var DEFAULT_PRIORITY = ["482ofyysbdbeoxauk19yg7tdt", "2kwbbcootiqqgmrzs6o5inle5", "34pl8szyvrbwcmfkuocjm3r6t", "1r097lpxe0xn03ihb7wi98kao", "6by3h89i2eykc341oz7lv1ddd", "dm5ka0os1e3dxcp3vh05kmp33"];
+
+function languagePriority(lang) {
+  var key = String(lang || "").toLowerCase();
+  var pref = LANGUAGE_PRIORITY[key] || (LANGUAGE_PRIORITY[key.split("-")[0]] || DEFAULT_PRIORITY);
+  return pref;
+}
+
+// Leagues sorted with favorites first, then language priority, then original order.
+function sortLeagues(leagues, favoriteIds, lang) {
+  var fav = {};
+  for (var i = 0; i < favoriteIds.length; i++) fav[favoriteIds[i]] = true;
+  var pref = languagePriority(lang);
+  var rank = {};
+  for (var j = 0; j < pref.length; j++) rank[pref[j]] = j;
+
+  var decorated = [];
+  for (var k = 0; k < leagues.length; k++) {
+    var lg = leagues[k];
+    var favScore = 0;
+    // A league is promoted if the user marked at least one favourite team in it.
+    // We don't know per-team league here; promote by priority + later refinement in panel.
+    decorated.push({ lg: lg, rank: rank[lg.id] !== undefined ? rank[lg.id] : 1000 + k });
+  }
+  decorated.sort(function(a, b) { return a.rank - b.rank; });
+  var out = [];
+  for (var m = 0; m < decorated.length; m++) out.push(decorated[m].lg);
+  return out;
+}
+
+// Onboarding national-team grid: flag svg path (relative to flags/) + English name.
+var nationalTeams = [
+  { code: "tr", name: "Türkiye" }, { code: "de", name: "Germany" }, { code: "es", name: "Spain" },
+  { code: "fr", name: "France" }, { code: "it", name: "Italy" },
+  { code: "pt", name: "Portugal" }, { code: "nl", name: "Netherlands" }, { code: "be", name: "Belgium" },
+  { code: "gb-eng", name: "England" }, { code: "gb-sct", name: "Scotland" },
+  { code: "br", name: "Brazil" }, { code: "ar", name: "Argentina" }, { code: "us", name: "United States" },
+  { code: "mx", name: "Mexico" }, { code: "jp", name: "Japan" }, { code: "kr", name: "South Korea" },
+  { code: "sa", name: "Saudi Arabia" }, { code: "au", name: "Australia" }, { code: "ma", name: "Morocco" },
+  { code: "dz", name: "Algeria" }, { code: "qa", name: "Qatar" }, { code: "ae", name: "UAE" },
+  { code: "cr", name: "Costa Rica" }, { code: "eg", name: "Egypt" }, { code: "tn", name: "Tunisia" },
+  { code: "ly", name: "Libya" }, { code: "pl", name: "Poland" }, { code: "ua", name: "Ukraine" },
+  { code: "at", name: "Austria" }, { code: "ch", name: "Switzerland" }, { code: "gr", name: "Greece" },
+  { code: "cz", name: "Czechia" }, { code: "sk", name: "Slovakia" }, { code: "hu", name: "Hungary" },
+  { code: "ro", name: "Romania" }, { code: "bg", name: "Bulgaria" }, { code: "hr", name: "Croatia" },
+  { code: "rs", name: "Serbia" }, { code: "si", name: "Slovenia" }, { code: "se", name: "Sweden" },
+  { code: "no", name: "Norway" }, { code: "dk", name: "Denmark" }, { code: "fi", name: "Finland" },
+  { code: "is", name: "Iceland" }, { code: "ie", name: "Ireland" }, { code: "ca", name: "Canada" },
+  { code: "ge", name: "Georgia" }, { code: "az", name: "Azerbaijan" }, { code: "md", name: "Moldova" },
+  { code: "ba", name: "Bosnia" }, { code: "al", name: "Albania" }, { code: "mk", name: "North Macedonia" },
+  { code: "il", name: "Israel" }
+];
+
+function ntFlagPath(code) { return Qt.resolvedUrl("flags/" + code + ".svg"); }

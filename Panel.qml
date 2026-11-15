@@ -12,7 +12,7 @@ Panel {
   ipcTarget: "superlig.futbol"
   manageIpc: false
 
-  Commons.Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
+  Strings { id: strings; directory: Qt.resolvedUrl("i18n"); language: root.languageCode }
 
   // Inline plain-text component: fetched strings must never render as rich text.
   component PlainText: Text { textFormat: Text.PlainText }
@@ -64,6 +64,92 @@ Panel {
   property var detail: ({})
   property bool detailLoading: false
   property string detailError: ""
+
+  // ---- Onboarding / favourites ---------------------------------------------
+  readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state") + "/omarchy/superlig.futbol"
+  readonly property string statePath: stateDir + "/state.json"
+  readonly property string cachePath: stateDir + "/teams.json"
+
+  property string languageCode: "en"
+  property bool onboarded: false
+  property var favorites: []
+  property string ntFavorite: ""
+  property var teamLeagueMap: ({}) // teamId -> leagueId
+  property string wizardQuery: ""
+  property string wizardTeamSearch: ""
+  property var wizardResults: []
+  property bool wizardSearching: false
+  property int wizardStep: 0
+
+  readonly property var sortedLeagues: {
+    var out = Model.sortLeagues(root.leagues, root.favorites, root.languageCode)
+    // Promote leagues containing a favourite team when we have the map.
+    if (root.favorites.length === 0 || Object.keys(root.teamLeagueMap).length === 0) return out
+    var counts = {}
+    for (var i = 0; i < root.favorites.length; i++) {
+      var lg = root.teamLeagueMap[root.favorites[i]]
+      if (lg) counts[lg] = (counts[lg] || 0) + 1
+    }
+    out = out.slice()
+    out.sort(function(a, b) {
+      var ca = counts[a.id] || 0, cb = counts[b.id] || 0
+      if (ca !== cb) return cb - ca
+      return 0
+    })
+    return out
+  }
+
+  function saveState() {
+    // Atomic-ish write via a temp file + rename.
+    var payload = JSON.stringify({
+      onboarded: true,
+      language: root.languageCode,
+      favorites: root.favorites,
+      ntFavorite: root.ntFavorite
+    })
+    writeStateProc.command = ["/usr/bin/python3", "-c",
+      "import json, os, sys\n" +
+      "p = sys.argv[1]\n" +
+      "d = os.path.dirname(p)\n" +
+      "os.makedirs(d, exist_ok=True)\n" +
+      "tmp = p + '.tmp'\n" +
+      "open(tmp, 'w', encoding='utf-8').write(sys.argv[2])\n" +
+      "os.replace(tmp, p)\n",
+      root.statePath, payload]
+    writeStateProc.running = true
+  }
+
+  function loadStateFromDisk() {
+    stateFile.reload()
+  }
+
+  function finishOnboarding() {
+    root.onboarded = true
+    saveState()
+    // Kick off a background fetch of all standings to build the team→league map.
+    fetchAllStandings()
+  }
+
+  // Background: fetch every league's table, cache teamId→leagueId map.
+  property var pendingLeagueFetches: []
+
+  function fetchAllStandings() {
+    pendingLeagueFetches = Model.leagues.map(function(l) { return l.id })
+    if (!allStandingsProc.running) allStandingsProc.running = true
+  }
+
+  function applyLanguage(code) {
+    if (code === root.languageCode) return
+    root.languageCode = code
+  }
+
+  function toggleFavorite(teamId) {
+    var next = root.favorites.slice()
+    var idx = next.indexOf(teamId)
+    if (idx === -1) next.push(teamId)
+    else next.splice(idx, 1)
+    root.favorites = next
+  }
 
   readonly property var leagues: Model.leagues
   property string leagueId: "482ofyysbdbeoxauk19yg7tdt" // Trendyol Süper Lig
@@ -354,6 +440,133 @@ Panel {
     }
   }
 
+  // ---- State persistence (FileView watcher + atomic writer) ---------------
+
+  FileView {
+    id: stateFile
+    path: root.statePath
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.parseState(text())
+  }
+
+  function parseState(raw) {
+    var parsed = Model.parseJson(String(raw || ""));
+    if (!parsed) { root.onboarded = false; return; }
+    root.languageCode = Model.clean(parsed.language, 10) || "en";
+    root.favorites = Array.isArray(parsed.favorites) ? parsed.favorites.map(String) : [];
+    root.ntFavorite = Model.clean(parsed.ntFavorite, 12);
+    root.onboarded = parsed.onboarded === true;
+  }
+
+  Process {
+    id: writeStateProc
+    command: ["/usr/bin/python3", "-c", "import sys; print('noop')"]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: {} }
+  }
+
+  // Cache of teamId → leagueId, populated by a background full-standings pass.
+  FileView {
+    id: teamCacheFile
+    path: root.cachePath
+    watchChanges: false
+    printErrors: false
+    onLoaded: {
+      var parsed = Model.parseJson(String(text() || ""));
+      if (parsed && parsed.map) root.teamLeagueMap = parsed.map;
+    }
+  }
+
+  Process {
+    id: allStandingsProc
+    command: ["/usr/bin/python3", root.backendPath, "all", "482ofyysbdbeoxauk19yg7tdt"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var parsed = Model.parseJson(String(text || ""));
+        if (!parsed || parsed.error) {
+          root.pendingLeagueFetches.shift();
+          if (root.pendingLeagueFetches.length > 0) {
+            var next = root.pendingLeagueFetches.shift();
+            allStandingsProc.command = ["/usr/bin/python3", root.backendPath, "all", next];
+            allStandingsProc.running = true;
+          }
+          return;
+        }
+        var map = Object.assign({}, root.teamLeagueMap);
+        var rawTable = Array.isArray(parsed.standings) ? parsed.standings : [];
+        for (var i = 0; i < rawTable.length; i++) {
+          var r = rawTable[i];
+          if (r && r.teamId) map[r.teamId] = parsed.competition;
+        }
+        root.teamLeagueMap = map;
+        // Persist the cache so the next startup doesn't refetch everything.
+        writeTeamCache(map);
+        if (root.pendingLeagueFetches.length > 0) {
+          var next = root.pendingLeagueFetches.shift();
+          allStandingsProc.command = ["/usr/bin/python3", root.backendPath, "all", next];
+          allStandingsProc.running = true;
+        }
+      }
+    }
+  }
+
+  function writeTeamCache(map) {
+    teamCacheWriteProc.command = ["/usr/bin/python3", "-c",
+      "import json, os, sys\n" +
+      "p = sys.argv[1]\n" +
+      "d = os.path.dirname(p)\n" +
+      "os.makedirs(d, exist_ok=True)\n" +
+      "open(p + '.tmp', 'w', encoding='utf-8').write(sys.argv[2])\n" +
+      "os.replace(p + '.tmp', p)\n",
+      root.cachePath, JSON.stringify({ map: map })]
+    teamCacheWriteProc.running = true
+  }
+
+  Process {
+    id: teamCacheWriteProc
+    command: ["/usr/bin/python3", "-c", "import sys; print('noop')"]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: {} }
+  }
+
+  // Onboarding search: type → mackolik contestant search → crest grid.
+  Timer {
+    id: wizardSearchDebounce
+    interval: 280
+    repeat: false
+    onTriggered: {
+      var q = root.wizardQuery.trim()
+      if (q.length < 2) { root.wizardResults = []; return }
+      root.wizardSearching = true
+      wizardSearchProc.command = ["curl", "-fsS", "--max-time", "8",
+        "https://www.mackolik.com/ajax/search?keywords=" + encodeURIComponent(q)]
+      wizardSearchProc.running = true
+    }
+  }
+
+  Process {
+    id: wizardSearchProc
+    command: ["curl", "-fsS", "--max-time", "8", "https://www.mackolik.com/ajax/search?keywords=galatasaray"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.wizardSearching = false
+        var parsed = Model.parseJson(String(text || ""))
+        var contestants = parsed && parsed.data && parsed.data.results && parsed.data.results.contestants
+        var out = []
+        if (Array.isArray(contestants)) {
+          for (var i = 0; i < contestants.length && out.length < 24; i++) {
+            var c = contestants[i]
+            if (!c || c.sport !== "Soccer") continue
+            out.push({ id: String(c.id || ""), name: Model.clean(c.displayName, 60) })
+          }
+        }
+        root.wizardResults = out
+      }
+    }
+  }
+
   // 500ms ticker for live minute/second displays; also keeps list minutes fresh.
   Timer {
     id: nowTicker
@@ -467,6 +680,31 @@ Panel {
               anchors.verticalCenter: parent.verticalCenter
               spacing: Style.space(8)
 
+              // Language re-opener
+              Rectangle {
+                width: Style.space(38)
+                height: Style.space(30)
+                radius: Math.min(6, Style.cornerRadius)
+                color: languageArea.containsMouse ? Style.hoverFillFor(root.fg, root.accent) : "transparent"
+                PlainText {
+                  id: languageButtonText
+                  anchors.centerIn: parent
+                  text: root.languageCode.toUpperCase()
+                  color: languageArea.containsMouse ? Style.hoverStateColor(root.fg, root.accent) : root.fgDim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  font.letterSpacing: 0.5
+                }
+                MouseArea {
+                  id: languageArea
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: { root.onboarded = false; root.wizardStep = 0 }
+                }
+              }
+
               Rectangle {
                 width: Style.space(30)
                 height: Style.space(30)
@@ -528,7 +766,7 @@ Panel {
               spacing: Style.space(6)
 
               Repeater {
-                model: root.leagues
+                model: root.sortedLeagues
 
                 Rectangle {
                   required property var modelData
@@ -1057,11 +1295,414 @@ Panel {
             }
           }
 
+          // ===== Onboarding wizard (shown until onboarded)
+          Item {
+            visible: !root.onboarded
+            width: parent.width
+            implicitHeight: onboardingContent.implicitHeight
+
+            Column {
+              id: onboardingContent
+              width: parent.width
+              spacing: Style.space(14)
+
+              // ---- Step 0: language picker
+              Column {
+                visible: root.wizardStep === 0
+                width: parent.width
+                spacing: Style.space(12)
+
+                Column {
+                  spacing: 4
+                  PlainText {
+                    text: strings.t("onb.welcome")
+                    color: root.fg
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.displayLarge
+                    font.bold: true
+                  }
+                  PlainText {
+                    text: strings.t("onb.language")
+                    color: root.fgDim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.title
+                  }
+                }
+
+                Flickable {
+                  width: parent.width
+                  height: Style.space(430)
+                  contentWidth: width
+                  contentHeight: languageGrid.implicitHeight
+                  clip: true
+                  boundsBehavior: Flickable.StopAtBounds
+
+                  Grid {
+                    id: languageGrid
+                    columns: 2
+                    spacing: Style.space(8)
+                    width: parent.width
+
+                    Repeater {
+                      model: Object.keys(Model.languageNames).map(function(code) {
+                        return { code: code, name: Model.languageNames[code] }
+                      })
+
+                      Rectangle {
+                        required property var modelData
+                        readonly property bool selected: modelData.code === root.languageCode
+                        width: (languageGrid.width - Style.space(8)) / 2
+                        height: Style.space(46)
+                        radius: Math.min(10, Style.cornerRadius)
+                        color: selected ? Style.hoverFillFor(root.fg, root.accent) : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.04)
+                        border.width: selected ? 0 : 1
+                        border.color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.12)
+
+                        Row {
+                          anchors.left: parent.left
+                          anchors.leftMargin: Style.space(14)
+                          anchors.verticalCenter: parent.verticalCenter
+                          spacing: Style.space(12)
+                          PlainText {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: modelData.code.toUpperCase()
+                            color: selected ? Style.hoverStateColor(root.fg, root.accent) : root.fgFaint
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            font.bold: true
+                            width: 34
+                          }
+                          PlainText {
+                            anchors.verticalCenter: parent.verticalCenter
+                            elide: Text.ElideRight
+                            width: parent.width - Style.space(46)
+                            text: modelData.name
+                            color: selected ? Style.hoverStateColor(root.fg, root.accent) : root.fg
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.body
+                            font.bold: selected
+                          }
+                        }
+                        MouseArea {
+                          anchors.fill: parent
+                          hoverEnabled: true
+                          cursorShape: Qt.PointingHandCursor
+                          onClicked: { root.applyLanguage(modelData.code); root.saveState(); }
+                        }
+                      }
+                    }
+                  }
+                }
+
+                Row {
+                  width: parent.width
+                  anchors.right: parent.right
+                  spacing: Style.space(10)
+                  Rectangle {
+                    width: Style.space(150)
+                    height: Style.space(38)
+                    radius: Math.min(8, Style.cornerRadius)
+                    color: accentFill.containsMouse ? Qt.lighter(root.accent, 1.1) : root.accent
+                    PlainText {
+                      anchors.centerIn: parent
+                      text: strings.t("onb.continue")
+                      color: "#ffffff"
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                      font.bold: true
+                    }
+                    MouseArea {
+                      id: accentFill
+                      anchors.fill: parent
+                      hoverEnabled: true
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: root.wizardStep = 1
+                    }
+                  }
+                }
+              }
+
+              // ---- Step 1: favourite clubs (search → crest grid)
+              Column {
+                visible: root.wizardStep === 1
+                width: parent.width
+                spacing: Style.space(10)
+
+                PlainText {
+                  text: strings.t("onb.favorites")
+                  color: root.fg
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.title
+                  font.bold: true
+                }
+                TextField {
+                  id: searchField
+                  width: parent.width
+                  height: Style.space(40)
+                  placeholderText: strings.t("onb.search")
+                  foreground: root.fg
+                  font.family: root.fontFamily
+                  onTextChanged: {
+                    root.wizardQuery = text
+                    wizardSearchDebounce.restart()
+                  }
+                }
+                Item {
+                  visible: root.wizardSearching
+                  width: parent.width
+                  height: Style.space(30)
+                  PlainText {
+                    anchors.centerIn: parent
+                    text: strings.t("state.loading")
+                    color: root.fgDim
+                    font.pixelSize: Style.font.caption
+                  }
+                }
+
+                Flickable {
+                  width: parent.width
+                  height: Style.space(320)
+                  contentWidth: width
+                  contentHeight: clubGrid.implicitHeight
+                  clip: true
+                  boundsBehavior: Flickable.StopAtBounds
+
+                  Grid {
+                    id: clubGrid
+                    columns: 4
+                    spacing: Style.space(8)
+                    width: parent.width
+
+                    Repeater {
+                      model: root.wizardResults
+
+                      Rectangle {
+                        required property var modelData
+                        readonly property bool selected: root.favorites.indexOf(modelData.id) !== -1
+                        width: (clubGrid.width - Style.space(24)) / 4
+                        height: Style.space(86)
+                        radius: Math.min(10, Style.cornerRadius)
+                        color: selected ? Style.hoverFillFor(root.fg, root.accent) : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.04)
+                        border.width: selected ? 0 : 1
+                        border.color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.12)
+
+                        Column {
+                          anchors.centerIn: parent
+                          spacing: 4
+                          Image {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            source: modelData.id ? "https://file.mackolikfeeds.com/teams/" + modelData.id : ""
+                            sourceSize: Qt.size(56, 56)
+                            width: Style.space(34)
+                            height: Style.space(34)
+                            fillMode: Image.PreserveAspectFit
+                            asynchronous: true
+                            cache: true
+                          }
+                          PlainText {
+                            width: parent.width - Style.space(8)
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            horizontalAlignment: Text.AlignHCenter
+                            elide: Text.ElideRight
+                            text: modelData.name
+                            color: selected ? Style.hoverStateColor(root.fg, root.accent) : root.fgDim
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            font.bold: selected
+                          }
+                        }
+                        MouseArea {
+                          anchors.fill: parent
+                          hoverEnabled: true
+                          cursorShape: Qt.PointingHandCursor
+                          onClicked: root.toggleFavorite(modelData.id)
+                        }
+                      }
+                    }
+                  }
+                }
+
+                PlainText {
+                  text: root.favorites.length + " / " + strings.t("onb.favorites")
+                  color: root.fgFaint
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                Row {
+                  width: parent.width
+                  spacing: Style.space(10)
+                  Item { width: 1; height: 1 }
+                  Rectangle {
+                    width: Style.space(110)
+                    height: Style.space(38)
+                    radius: Math.min(8, Style.cornerRadius)
+                    color: "transparent"
+                    border.width: 1
+                    border.color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.2)
+                    PlainText {
+                      anchors.centerIn: parent
+                      text: strings.t("onb.skip")
+                      color: root.fgDim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                    }
+                    MouseArea {
+                      anchors.fill: parent
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: root.wizardStep = 2
+                    }
+                  }
+                  Rectangle {
+                    width: Style.space(150)
+                    height: Style.space(38)
+                    radius: Math.min(8, Style.cornerRadius)
+                    color: root.favorites.length > 0 ? root.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.1)
+                    PlainText {
+                      anchors.centerIn: parent
+                      text: strings.t("onb.continue")
+                      color: root.favorites.length > 0 ? "#ffffff" : root.fgFaint
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                      font.bold: true
+                    }
+                    MouseArea {
+                      anchors.fill: parent
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: root.wizardStep = 2
+                    }
+                  }
+                }
+              }
+
+              // ---- Step 2: national team (flags grid)
+              Column {
+                visible: root.wizardStep === 2
+                width: parent.width
+                spacing: Style.space(10)
+
+                PlainText {
+                  text: strings.t("onb.nt")
+                  color: root.fg
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.title
+                  font.bold: true
+                }
+                Flickable {
+                  width: parent.width
+                  height: Style.space(360)
+                  contentWidth: width
+                  contentHeight: flagGrid.implicitHeight
+                  clip: true
+                  boundsBehavior: Flickable.StopAtBounds
+
+                  Grid {
+                    id: flagGrid
+                    columns: 3
+                    spacing: Style.space(8)
+                    width: parent.width
+
+                    Repeater {
+                      model: Model.nationalTeams
+                      Rectangle {
+                        required property var modelData
+                        readonly property bool selected: root.ntFavorite === modelData.code
+                        width: (flagGrid.width - Style.space(16)) / 3
+                        height: Style.space(58)
+                        radius: Math.min(10, Style.cornerRadius)
+                        color: selected ? Style.hoverFillFor(root.fg, root.accent) : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.04)
+                        border.width: selected ? 0 : 1
+                        border.color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.12)
+
+                        Row {
+                          anchors.left: parent.left
+                          anchors.leftMargin: Style.space(10)
+                          anchors.verticalCenter: parent.verticalCenter
+                          spacing: Style.space(10)
+                          Image {
+                            anchors.verticalCenter: parent.verticalCenter
+                            source: Model.ntFlagPath(modelData.code)
+                            sourceSize: Qt.size(56, 40)
+                            width: Style.space(32)
+                            height: Style.space(22)
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            cache: true
+                          }
+                          PlainText {
+                            anchors.verticalCenter: parent.verticalCenter
+                            elide: Text.ElideRight
+                            text: modelData.name
+                            color: selected ? Style.hoverStateColor(root.fg, root.accent) : root.fg
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.bodySmall
+                            font.bold: selected
+                          }
+                        }
+                        MouseArea {
+                          anchors.fill: parent
+                          hoverEnabled: true
+                          cursorShape: Qt.PointingHandCursor
+                          onClicked: root.ntFavorite = selected ? "" : modelData.code
+                        }
+                      }
+                    }
+                  }
+                }
+
+                Row {
+                  width: parent.width
+                  spacing: Style.space(10)
+                  Item { width: 1; height: 1 }
+                  Rectangle {
+                    width: Style.space(110)
+                    height: Style.space(38)
+                    radius: Math.min(8, Style.cornerRadius)
+                    color: "transparent"
+                    border.width: 1
+                    border.color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.2)
+                    PlainText {
+                      anchors.centerIn: parent
+                      text: strings.t("onb.skip")
+                      color: root.fgDim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                    }
+                    MouseArea {
+                      anchors.fill: parent
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: root.finishOnboarding()
+                    }
+                  }
+                  Rectangle {
+                    width: Style.space(150)
+                    height: Style.space(38)
+                    radius: Math.min(8, Style.cornerRadius)
+                    color: root.accent
+                    PlainText {
+                      anchors.centerIn: parent
+                      text: strings.t("onb.save")
+                      color: "#ffffff"
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                      font.bold: true
+                    }
+                    MouseArea {
+                      anchors.fill: parent
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: root.finishOnboarding()
+                    }
+                  }
+                }
+              }
+            }
+          }
+
           // ===== Matches list (tabs 0-2)
           Item {
             width: parent.width
-            visible: !root.detailOpen && root.activeTab !== 3
-            implicitHeight: (!root.detailOpen && root.activeTab !== 3) ? matchesContent.implicitHeight : 0
+            visible: root.onboarded && !root.detailOpen && root.activeTab !== 3
+            implicitHeight: (root.onboarded && !root.detailOpen && root.activeTab !== 3) ? matchesContent.implicitHeight : 0
 
             Column {
               id: matchesContent
@@ -1225,9 +1866,9 @@ Panel {
 
           // ===== Standings table (tab 3)
           Item {
-            visible: !root.detailOpen && root.activeTab === 3
+            visible: root.onboarded && !root.detailOpen && root.activeTab === 3
             width: parent.width
-            implicitHeight: (!root.detailOpen && root.activeTab === 3) ? tableContent.implicitHeight : 0
+            implicitHeight: (root.onboarded && !root.detailOpen && root.activeTab === 3) ? tableContent.implicitHeight : 0
 
             Column {
               id: tableContent

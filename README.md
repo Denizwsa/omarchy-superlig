@@ -1,17 +1,23 @@
 # Futbol — Omarchy plugin
 
-Maçkolik-style football for the Omarchy bar and popup panel. Scores, fixtures and full league tables with team crests, live minute:second on match days, match details (goals, cards, subs, starting XIs, officials).
+Maçkolik-style football for the Omarchy bar and popup panel. Live scores with minute:second, fixtures, full league tables with crests, match details — now with favourites, a first-run onboarding, and 50 languages.
 
-![preview](preview.png)
+## First run
+
+1. **Language** — the whole plugin switches to the chosen language (50 languages included; fallback is English)
+2. **Your favourite clubs** — search-and-pick across all leagues (search "Beşiktaş", tap the crest)
+3. **Your national team** — flag grid, multi-select not required; pick the one you follow
+
+Persist in `~/.local/state/omarchy/superlig.futbol/state.json`. Re-open the wizard anytime from the language button in the panel header.
 
 ## Features
 
-- **Leagues (18):** Trendyol Süper Lig, TFF 1./2./3. Lig, Premier League, Championship, League One/Two, LaLiga, Serie A, Bundesliga, 2. Bundesliga, Ligue 1, Eredivisie, Liga Portugal, UEFA Champions/Europa/Conference League
-- **Bugün / Yarın / Sonuçlar / Puan Durumu** tabs
-- **Match details on tap**: big score, live minute:second counter (İY included), referee line, event timeline (goals with assists and running score, yellow/red cards, substitutions, home left / away right), starting XIs with formation
-- **Standings**: rank, crest, O/G/B/M/AG/YG/AV/P, form pills (last 5), champion/Europe/relegation zone colours, season label and update date
-- Keyboard: `R` refresh · `1–4` tabs · `j/k` scroll · `Tab` next panel · `B`/`Esc` back
-- English and Turkish UI
+- **Bar pill**: ball icon when nothing's on; when one of your favourite clubs or your national team is playing, it shows crests + live score + minute (e.g. `Bjk 2 : 1 GS 78'`)
+- **Leagues (20):** Süper Lig, TFF 1./2./3. Lig, Premier League, Championship, League One/Two, LaLiga (+ LaLiga 2), Serie A, Bundesliga, 2. Bundesliga, Ligue 1, Eredivisie (+ Eerste Divisie), Primeira Liga, UEFA Champions/Europa/Conference League
+- **Bugün / Yarın / Sonuçlar / Puan Durumu** — favorites-first league ordering (cached), zone colours (ŞL/Avrupa/küme), form pills
+- **Match details** — events timeline, starting XIs with formations, officials
+- **Re-ordered chips** — your favourite leagues float to the top; language choice re-prioritises the list too
+- **50 languages** — UI fully localised; switch anytime from the panel header
 
 ## Install
 
@@ -25,24 +31,29 @@ Uninstall:
 omarchy plugin remove superlig.futbol
 ```
 
+State and cache:
+
+```sh
+rm -rf ~/.local/state/omarchy/superlig.futbol
+```
+
 ## Dependencies
 
-- Omarchy shell (Quickshell) — plugin runtime, no extra packages to install
-- `curl` — shipped with Omarchy
-- `python3` standard library only — no pip, nothing to install
+- Omarchy shell (Quickshell) — plugin runtime
+- `curl` and `python3` (stdlib only) — shipped with Omarchy
 
 ## Data source
 
-Data comes from public pages and endpoints on **mackolik.com** (this plugin is unofficial and not affiliated with mackolik). League tables and full-season fixtures come from the league page (`/r/lig/<id>`), live state from the daily livescores JSON. Requests happen **only when the panel is opened and while it stays open** (auto-refresh every N minutes, default 10) — roughly 1–4 requests per refresh, ~4–5 MB per league load. No traffic runs in the background when the panel is closed. A polite UA is sent and failed requests retry with backoff; last good data stays on screen.
+Unofficial client of **mackolik.com** (not affiliated with mackolik). League fixtures and tables from the league pages (`/r/lig/<id>`); live state from the daily livescores JSON. Requests happen only when the panel opens and while it is open (auto-refresh, default 10 min) — a few requests per refresh, a few MB per league load. A polite UA is sent; rate-limited responses keep last-good data on screen.
 
-Team crests: `https://file.mackolikfeeds.com/teams/<id>`.
+Team crests: `https://file.mackolikfeeds.com/teams/<uuid>`. Flags: flagcdn.com SVGs (bundled).
 
 ## Limits
 
-- No substitutions bench (match page embeds starting XIs only), no manager/stadium
-- Live minute is computed from the feed's period-start timestamps
-- Fixture times are shown exactly as mackolik displays them
-- If mackolik rate-limits (502/503), the panel keeps showing the last good data
+- No substitutions bench; officials shown, manager not embedded
+- Live minute computed from the feed's period timestamps; extra-time minute may read high
+- Some competitions (national cups) may not expose tables on mackolik's public pages
+- Favourite → league mapping is cached after the first full standings sweep (~20 pages, one time)
 
 ## License
 
