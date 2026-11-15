@@ -216,11 +216,11 @@ def parse_match_page(page):
 
 
 
-def fetch_news(query):
+def fetch_news(query, mkt="tr-TR", setlang="tr"):
     # Bing News RSS: source URLs embedded in the apiclick wrapper are directly
     # recoverable, so in-panel article view works without opening a browser.
-    q = urllib.parse.quote("site:mackolik.com " + query)
-    url = "https://www.bing.com/news/search?q=%s&format=rss" % q
+    q = urllib.parse.quote(query)
+    url = "https://www.bing.com/news/search?q=%s&mkt=%s&setlang=%s&format=rss" % (q, mkt, setlang)
     raw = fetch(url)
     try:
         root = ET.fromstring(raw)
@@ -246,13 +246,13 @@ def fetch_news(query):
     return items
 
 
-ALLOWED_ARTICLE_HOSTS = {"www.mackolik.com", "mackolik.com", "arsiv.mackolik.com"}
-
-
 def fetch_article(url):
-    host = (urllib.parse.urlparse(url).hostname or "").lower()
-    if host not in ALLOWED_ARTICLE_HOSTS:
-        fail("unsupported host: %s" % host)
+    # Plain-text article extraction: any HTTPS host allowed; credentials stripped.
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https":
+        fail("only https urls allowed")
+    if "@" in (parsed.netloc or ""):
+        fail("credentials in url rejected")
     page = fetch(url)
     text = page
 
@@ -293,9 +293,11 @@ def main():
     target = sys.argv[2].strip()
 
     if mode == "news":
-        if not re.fullmatch(r".{2,80}", target):
+        if not re.fullmatch(r".{2,150}", target):
             fail("bad query")
-        print(json.dumps({"query": target, "items": fetch_news(target)}, ensure_ascii=False))
+        mkt = sys.argv[3].strip() if len(sys.argv) > 3 else "tr-TR"
+        setlang = sys.argv[4].strip() if len(sys.argv) > 4 else "tr"
+        print(json.dumps({"query": target, "mkt": mkt, "items": fetch_news(target, mkt, setlang)}, ensure_ascii=False))
         return
 
     if mode == "article":

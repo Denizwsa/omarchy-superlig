@@ -263,3 +263,70 @@ function ntCodeForMkName(name) {
     if (NT_MK_NAMES[code] === name) return code;
   return "";
 }
+
+// Per-NT localized Bing News query + market. Panel uses it when an NT is
+// selected; club favourites keep the mackolik.com Turkish feed.
+var NT_NEWS = {
+  "tr": { q: "Türkiye milli takım", mkt: "tr-TR", setlang: "tr" },
+  "de": { q: "deutsche Fußballnationalmannschaft", mkt: "de-DE", setlang: "de" },
+  "es": { q: "selección española de fútbol", mkt: "es-ES", setlang: "es" },
+  "it": { q: "nazionale italiana di calcio", mkt: "it-IT", setlang: "it" },
+  "fr": { q: "équipe de France football", mkt: "fr-FR", setlang: "fr" },
+  "pt": { q: "seleção portuguesa de futebol", mkt: "pt-PT", setlang: "pt" },
+  "nl": { q: "Nederlands elftal", mkt: "nl-NL", setlang: "nl" },
+  "be": { q: "Belgische voetbalelftal", mkt: "nl-BE", setlang: "nl" },
+  "gb-eng": { q: "England national football team", mkt: "en-GB", setlang: "en" },
+  "gb-sct": { q: "Scotland national football team", mkt: "en-GB", setlang: "en" },
+  "br": { q: "seleção brasileira de futebol", mkt: "pt-BR", setlang: "pt" },
+  "ar": { q: "selección argentina de fútbol", mkt: "es-AR", setlang: "es" },
+  "us": { q: "United States men's national soccer team", mkt: "en-US", setlang: "en" },
+  "mx": { q: "selección mexicana de fútbol", mkt: "es-MX", setlang: "es" },
+  "jp": { q: "日本代表", mkt: "ja-JP", setlang: "ja" },
+  "kr": { q: "대한민국 축구 국가대표팀", mkt: "ko-KR", setlang: "ko" },
+  "sa": { q: "منتخب السعودية لكرة القدم", mkt: "ar-SA", setlang: "ar" },
+  "au": { q: "Socceroos", mkt: "en-AU", setlang: "en" },
+  "ma": { q: "منتخب المغرب لكرة القدم", mkt: "ar-MA", setlang: "ar" },
+  "dz": { q: "منتخب الجزائر لكرة القدم", mkt: "ar-DZ", setlang: "ar" },
+  "qa": { q: "منتخب قطر لكرة القدم", mkt: "ar-QA", setlang: "ar" },
+  "ae": { q: "منتخب الإمارات لكرة القدم", mkt: "ar-AE", setlang: "ar" },
+  "cr": { q: "selección de Costa Rica de fútbol", mkt: "es-CR", setlang: "es" },
+  "eg": { q: "منتخب مصر لكرة القدم", mkt: "ar-EG", setlang: "ar" },
+  "tn": { q: "منتخب تونس لكرة القدم", mkt: "ar-TN", setlang: "ar" },
+  "ly": { q: "منتخب ليبيا لكرة القدم", mkt: "ar-LY", setlang: "ar" },
+  "pl": { q: "reprezentacja Polski w piłce nożnej", mkt: "pl-PL", setlang: "pl" },
+  "ua": { q: "збірна України з футболу", mkt: "uk-UA", setlang: "uk" },
+  "at": { q: "österreichische Fußballnationalmannschaft", mkt: "de-AT", setlang: "de" },
+  "ch": { q: "Schweizer Fussballnationalmannschaft", mkt: "de-CH", setlang: "de" },
+  "gr": { q: "Εθνική Ελλάδας ποδόσφαιρο", mkt: "el-GR", setlang: "el" },
+  "cz": { q: "česká fotbalová reprezentace", mkt: "cs-CZ", setlang: "cs" },
+  "sk": { q: "slovenská futbalová reprezentácia", mkt: "sk-SK", setlang: "sk" },
+  "hu": { q: "magyar labdarúgó-válogatott", mkt: "hu-HU", setlang: "hu" },
+  "ro": { q: "naționala României de fotbal", mkt: "ro-RO", setlang: "ro" },
+  "bg": { q: "български национален отбор по футбол", mkt: "bg-BG", setlang: "bg" },
+  "hr": { q: "hrvatska nogometna reprezentacija", mkt: "hr-HR", setlang: "hr" },
+  "rs": { q: "српска фудбалска репрезентација", mkt: "sr-RS", setlang: "sr" },
+  "si": { q: "slovenska nogometna reprezentanca", mkt: "sl-SI", setlang: "sl" },
+  "se": { q: "Sveriges herrlandslag i fotboll", mkt: "sv-SE", setlang: "sv" },
+  "no": { q: "Norges herrelandslag i fotball", mkt: "no-NO", setlang: "no" },
+  "dk": { q: "Danmarks fodboldlandshold", mkt: "da-DK", setlang: "da" },
+  "fi": { q: "Suomen jalkapallomaajoukkue", mkt: "fi-FI", setlang: "fi" },
+  "is": { q: "Íslenska landsliðið í knattspyrnu", mkt: "is-IS", setlang: "is" },
+  "ie": { q: "Republic of Ireland national football team", mkt: "en-IE", setlang: "en" },
+  "ca": { q: "Canada men's national soccer team", mkt: "en-CA", setlang: "en" },
+  "ge": { q: "საქართველოს ეროვნული საფეხბურთო ნაკრები", mkt: "ka-GE", setlang: "ka" },
+  "az": { q: "Azərbaycan milli futbol komandası", mkt: "az-AZ", setlang: "az" },
+  "md": { q: "echipa națională de fotbal a Moldovei", mkt: "ro-MD", setlang: "ro" },
+  "ba": { q: "fudbalska reprezentacija Bosne i Hercegovine", mkt: "bs-BA", setlang: "bs" },
+  "al": { q: "kombëtarja shqiptare e futbollit", mkt: "sq-AL", setlang: "sq" },
+  "mk": { q: "фудбалска репрезентација на Северна Македонија", mkt: "mk-MK", setlang: "mk" },
+  "il": { q: "נבחרת ישראל בכדורגל", mkt: "he-IL", setlang: "he" }
+};
+
+var NT_QUERY_DEFAULT = { mkt: "en-US", setlang: "en" };
+
+function ntNewsQuery(code) {
+  var entry = NT_NEWS[code];
+  if (entry) return entry;
+  return { q: "national football team " + code, mkt: "en-US", setlang: "en" };
+}
+

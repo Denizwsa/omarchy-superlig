@@ -668,15 +668,20 @@ Panel {
   function isUuidish(v) { return /^[0-9a-z]{20,40}$/.test(v); }
 
   function refreshNews() {
-    var favQuery = (root.favorites.length > 0 && root.favoriteNames.length > 0) ? root.favoriteNames[0] : "";
-    var query;
-    if (root.ntMode) query = Model.ntMkName(root.ntCode);
-    else if (favQuery && !isUuidish(favQuery)) query = favQuery;
-    else if (root.ntFavorite) query = Model.ntMkName(root.ntFavorite);
-    else query = Model.leagueShort(root.leagueId);
-    if (!query) return;
+    var args;
+    if (root.ntMode) {
+      var entry = Model.ntNewsQuery(root.ntCode);
+      args = ["/usr/bin/python3", root.backendPath, "news", entry.q, entry.mkt, entry.setlang];
+    } else {
+      var favQuery = (root.favorites.length > 0 && root.favoriteNames.length > 0) ? root.favoriteNames[0] : "";
+      var q;
+      if (favQuery && !isUuidish(favQuery)) q = "site:mackolik.com " + favQuery;
+      else if (root.ntFavorite) q = Model.ntNewsQuery(root.ntFavorite).q;
+      else q = "site:mackolik.com " + Model.leagueShort(root.leagueId);
+      args = ["/usr/bin/python3", root.backendPath, "news", q];
+    }
     newsLoading = true;
-    newsProc.command = ["/usr/bin/python3", root.backendPath, "news", query];
+    newsProc.command = args;
     newsProc.running = true;
   }
 
@@ -711,7 +716,7 @@ Panel {
           if (!it) continue;
           var link = String(it.link || "");
           var lc = link.toLowerCase();
-          if (lc.indexOf("https://www.mackolik.com/") !== 0 && lc.indexOf("https://arsiv.mackolik.com/") !== 0) continue;
+          if (lc.indexOf("https://") !== 0 || lc.indexOf("@") !== -1) continue;
           out.push({
             title: Model.clean(it.title, 160),
             link: link,
