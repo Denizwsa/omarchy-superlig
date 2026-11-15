@@ -218,3 +218,48 @@ var nationalTeams = [
 ];
 
 function ntFlagPath(code) { return Qt.resolvedUrl("flags/" + code + ".svg"); }
+
+// ---- National teams ---------------------------------------------------
+
+var NT_MK_NAMES = {
+  "tr": "Türkiye", "de": "Almanya", "es": "İspanya", "it": "İtalya", "fr": "Fransa",
+  "pt": "Portekiz", "nl": "Hollanda", "be": "Belçika", "gb-eng": "İngiltere", "gb-sct": "İskoçya",
+  "br": "Brezilya", "ar": "Arjantin", "us": "ABD", "mx": "Meksika", "jp": "Japonya",
+  "kr": "Güney Kore", "sa": "Suudi Arabistan", "au": "Avustralya", "ma": "Fas", "dz": "Cezayir",
+  "qa": "Katar", "ae": "BAE", "cr": "Kosta Rika", "eg": "Mısır", "tn": "Tunus", "ly": "Libya",
+  "pl": "Polonya", "ua": "Ukrayna", "at": "Avusturya", "ch": "İsviçre", "gr": "Yunanistan",
+  "cz": "Çekya", "sk": "Slovakya", "hu": "Macaristan", "ro": "Romanya", "bg": "Bulgaristan",
+  "hr": "Hırvatistan", "rs": "Sırbistan", "si": "Slovenya", "se": "İsveç", "no": "Norveç",
+  "dk": "Danimarka", "fi": "Finlandiya", "is": "İzlanda", "ie": "İrlanda", "ca": "Kanada",
+  "ge": "Gürcistan", "az": "Azerbaycan", "md": "Moldova", "ba": "Bosna-Hersek", "al": "Arnavutluk",
+  "mk": "Kuzey Makedonya", "il": "İsrail"
+};
+
+// Members of the current UEFA Nations League (so the NT chip can show fixtures).
+var NT_UEFA = {
+  "tr": 1, "de": 1, "es": 1, "it": 1, "fr": 1, "pt": 1, "nl": 1, "be": 1, "gb-eng": 1, "gb-sct": 1,
+  "is": 1, "ie": 1, "at": 1, "ch": 1, "gr": 1, "cz": 1, "sk": 1, "hu": 1, "ro": 1, "bg": 1,
+  "hr": 1, "rs": 1, "si": 1, "se": 1, "no": 1, "dk": 1, "fi": 1, "pl": 1, "ua": 1, "il": 1,
+  "md": 1, "ge": 1, "az": 1, "ba": 1, "al": 1, "mk": 1, "kz": 1, "by": 1, "lt": 1, "lv": 1, "ee": 1
+};
+
+function ntMkName(code) { return NT_MK_NAMES[code] || code; }
+function ntIsUefa(code) { return NT_UEFA[code] === 1; }
+
+// Filter matches to those involving the given NT (match by mackolik Turkish name).
+function filterNtMatches(matches, code) {
+  var mk = ntMkName(code);
+  var out = [];
+  if (!Array.isArray(matches)) return out;
+  for (var i = 0; i < matches.length; i++) {
+    var m = matches[i];
+    if (m && (m.home === mk || m.away === mk)) out.push(m);
+  }
+  return out;
+}
+
+function ntCodeForMkName(name) {
+  for (var code in NT_MK_NAMES)
+    if (NT_MK_NAMES[code] === name) return code;
+  return "";
+}

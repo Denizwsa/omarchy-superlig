@@ -12,10 +12,12 @@ Persist in `~/.local/state/omarchy/superlig.futbol/state.json`. Re-open the wiza
 
 ## Features
 
-- **Bar pill**: ball icon when nothing's on; when one of your favourite clubs or your national team is playing, it shows crests + live score + minute (e.g. `Bjk 2 : 1 GS 78'`)
+- **Bar pill**: ball icon when nothing's on; a favourite club match shows crest + score + minute (e.g. `Beşiktaş 2 : 1 Gençlerbirliği 78'`), a national team match shows flags + score + minute (e.g. `Fransa 2 : 3 Türkiye 67'`)
 - **Leagues (20):** Süper Lig, TFF 1./2./3. Lig, Premier League, Championship, League One/Two, LaLiga (+ LaLiga 2), Serie A, Bundesliga, 2. Bundesliga, Ligue 1, Eredivisie (+ Eerste Divisie), Primeira Liga, UEFA Champions/Europa/Conference League
 - **Bugün / Yarın / Sonuçlar / Puan Durumu** — favorites-first league ordering (cached), zone colours (ŞL/Avrupa/küme), form pills
 - **Match details** — events timeline, starting XIs with formations, officials
+- **Millî Takım chip** — your NT's fixtures/results from UEFA Nations League (teams matched by name); standings hidden for group tournaments
+- **Haberler tab** — latest mackolik-tagged football news for your first favourite (Google News RSS, unofficial)
 - **Re-ordered chips** — your favourite leagues float to the top; language choice re-prioritises the list too
 - **50 languages** — UI fully localised; switch anytime from the panel header
 

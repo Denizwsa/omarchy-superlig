@@ -73,6 +73,7 @@ Panel {
   property string languageCode: "en"
   property bool onboarded: false
   property var favorites: []
+  property var favoriteNames: []
   property string ntFavorite: ""
   property var teamLeagueMap: ({}) // teamId -> leagueId
   property string wizardQuery: ""
@@ -101,10 +102,14 @@ Panel {
 
   function saveState() {
     // Atomic-ish write via a temp file + rename.
+    var favObjects = [];
+    for (var i = 0; i < root.favorites.length; i++) {
+      favObjects.push({ id: root.favorites[i], name: root.favoriteNames[i] || root.favorites[i] });
+    }
     var payload = JSON.stringify({
       onboarded: true,
       language: root.languageCode,
-      favorites: root.favorites,
+      favorites: favObjects,
       ntFavorite: root.ntFavorite
     })
     writeStateProc.command = ["/usr/bin/python3", "-c",
@@ -144,16 +149,31 @@ Panel {
   }
 
   function toggleFavorite(teamId) {
-    var next = root.favorites.slice()
-    var idx = next.indexOf(teamId)
-    if (idx === -1) next.push(teamId)
-    else next.splice(idx, 1)
-    root.favorites = next
+    var idList = root.favorites.slice()
+    var nameList = root.favoriteNames.slice()
+    var idx = idList.indexOf(teamId)
+    if (idx === -1) {
+      var name = teamId;
+      for (var i = 0; i < root.wizardResults.length; i++) {
+        if (root.wizardResults[i].id === teamId) { name = root.wizardResults[i].name; break; }
+      }
+      idList.push(teamId);
+      nameList.push(name);
+    } else {
+      idList.splice(idx, 1);
+      nameList.splice(idx, 1);
+    }
+    root.favorites = idList;
+    root.favoriteNames = nameList;
   }
 
   readonly property var leagues: Model.leagues
   property string leagueId: "482ofyysbdbeoxauk19yg7tdt" // Trendyol Süper Lig
-  readonly property string leagueName: Model.leagueName(leagueId, leagueId)
+  readonly property bool ntMode: leagueId.indexOf("nt:") === 0
+  readonly property string ntCode: ntMode ? leagueId.slice(3) : ""
+  readonly property string leagueName: ntMode
+    ? Model.ntMkName(ntCode) + (Model.ntIsUefa(ntCode) ? " — UEFA Uluslar Ligi" : "")
+    : Model.leagueName(leagueId, leagueId)
 
   property int activeTab: 0 // 0 bugün · 1 yarın · 2 sonuçlar · 3 puan durumu
   property var standings: []
@@ -264,7 +284,12 @@ Panel {
     var now = Date.now();
     if (!force && now - lastFullRefresh < 60 * 1000 && lastFullRefresh > 0) return;
     lastFullRefresh = now;
-    if (!backendProc.running) backendProc.running = true;
+    if (root.ntMode) {
+      if (!ntProc.running) ntProc.running = true;
+    } else if (!backendProc.running) {
+      backendProc.command = ["/usr/bin/python3", root.backendPath, "all", leagueId];
+      backendProc.running = true;
+    }
     if (!dailyProc.running) dailyProc.running = true;
   }
 
@@ -295,6 +320,7 @@ Panel {
     season = "";
     errorText = "";
     lastFullRefresh = 0;
+    if (ntFavorite !== "" && !ntProc.running) ntProc.command = ["/usr/bin/python3", root.backendPath, "all", "595nsvo7ykvoe690b1e4u5n56"];
     root.closeDetail();
     refreshAll(true);
   }
@@ -303,6 +329,7 @@ Panel {
     if (index === activeTab) return;
     activeTab = index;
     root.closeDetail();
+    if (index === 4) root.refreshNews();
   }
 
   Process {
@@ -455,7 +482,15 @@ Panel {
     var parsed = Model.parseJson(String(raw || ""));
     if (!parsed) { root.onboarded = false; return; }
     root.languageCode = Model.clean(parsed.language, 10) || "en";
-    root.favorites = Array.isArray(parsed.favorites) ? parsed.favorites.map(String) : [];
+    var favs = Array.isArray(parsed.favorites) ? parsed.favorites : [];
+    var ids = [], names = [];
+    for (var i = 0; i < favs.length; i++) {
+      var f = favs[i];
+      if (typeof f === "string") { ids.push(f); names.push(f); }
+      else if (f && f.id) { ids.push(String(f.id)); names.push(String(f.name || f.id)); }
+    }
+    root.favorites = ids;
+    root.favoriteNames = names;
     root.ntFavorite = Model.clean(parsed.ntFavorite, 12);
     root.onboarded = parsed.onboarded === true;
   }
@@ -563,6 +598,89 @@ Panel {
           }
         }
         root.wizardResults = out
+      }
+    }
+  }
+
+  // UEFA Nations League fixtures for the national team chip.
+  Process {
+    id: ntProc
+    command: ["/usr/bin/python3", root.backendPath, "all", "595nsvo7ykvoe690b1e4u5n56"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var parsed = Model.parseJson(String(text || ""));
+        if (!parsed || parsed.error) { root.errorText = strings.t("state.error"); return; }
+
+        var rawMatches = Array.isArray(parsed.matches) ? parsed.matches : [];
+        var mkName = Model.ntMkName(root.ntCode);
+        var ntRows = [];
+        for (var i = 0; i < rawMatches.length; i++) {
+          var m = rawMatches[i];
+          if (!m) continue;
+          var home = Model.clean(m.home, 60), away = Model.clean(m.away, 60);
+          if (home !== mkName && away !== mkName) continue;
+          var date = String(m.date || "");
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+          ntRows.push({
+            id: Model.clean(m.id, 64),
+            date: date,
+            time: /^\d{2}:\d{2}$/.test(String(m.time || "")) ? String(m.time) : "",
+            status: m.status === "played" ? "played" : "fixture",
+            home: home,
+            away: away,
+            homeCrest: Model.safeUrl(m.homeCrest),
+            awayCrest: Model.safeUrl(m.awayCrest),
+            homeScore: Math.max(-1, parseInt(m.homeScore, 10) || -1),
+            awayScore: Math.max(-1, parseInt(m.awayScore, 10) || -1)
+          });
+        }
+        root.matches = ntRows;
+        root.season = "UEFA Uluslar Ligi";
+        root.standings = [];
+        root.errorText = "";
+        root.lastUpdated = Model.nowTime();
+      }
+    }
+  }
+
+  // Football news for the favourite clubs / national team (Google News RSS, mackolik-only filter).
+  property var newsItems: []
+  property bool newsLoading: false
+  property string newsError: ""
+
+  function refreshNews() {
+    var query = root.ntMode ? Model.ntMkName(root.ntCode) : (root.favorites.length > 0 && root.favoriteNames.length > 0 ? root.favoriteNames[0] : (root.ntFavorite ? Model.ntMkName(root.ntFavorite) : Model.leagueShort(root.leagueId)));
+    if (!query) return;
+    newsLoading = true;
+    newsProc.command = ["/usr/bin/python3", root.backendPath, "news", query];
+    newsProc.running = true;
+  }
+
+  Process {
+    id: newsProc
+    command: ["/usr/bin/python3", root.backendPath, "news", "Beşiktaş"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.newsLoading = false;
+        var parsed = Model.parseJson(String(text || ""));
+        if (!parsed || parsed.error) { root.newsError = strings.t("state.error"); return; }
+        var out = [];
+        var raw = Array.isArray(parsed.items) ? parsed.items : [];
+        for (var i = 0; i < raw.length && out.length < 15; i++) {
+          var it = raw[i];
+          if (!it) continue;
+          var link = String(it.link || "");
+          if (link.indexOf("https://news.google.com/") !== 0) continue;
+          out.push({
+            title: Model.clean(it.title, 160),
+            link: link,
+            pubDate: Model.clean(it.pubDate, 40)
+          });
+        }
+        root.newsItems = out;
+        root.newsError = "";
       }
     }
   }
@@ -765,6 +883,48 @@ Panel {
               anchors.verticalCenter: parent.verticalCenter
               spacing: Style.space(6)
 
+              // National team chip, shown when one is picked
+              Rectangle {
+                visible: root.ntFavorite !== ""
+                readonly property bool selected: root.ntMode
+                height: Style.space(28)
+                width: ntChipRow.implicitWidth + Style.space(22)
+                radius: height / 2
+                color: selected ? Style.hoverFillFor(root.fg, root.accent) : "transparent"
+                border.width: selected ? 0 : 1
+                border.color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.18)
+
+                Row {
+                  id: ntChipRow
+                  anchors.centerIn: parent
+                  spacing: Style.space(6)
+
+                  Image {
+                    anchors.verticalCenter: parent.verticalCenter
+                    source: Model.ntFlagPath(root.ntFavorite)
+                    sourceSize: Qt.size(48, 32)
+                    width: Style.space(17)
+                    height: Style.space(12)
+                    fillMode: Image.PreserveAspectCrop
+                    cache: true
+                  }
+                  PlainText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: strings.t("nt.chip")
+                    color: root.ntMode ? Style.hoverStateColor(root.fg, root.accent) : root.fgDim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: root.ntMode
+                  }
+                }
+                MouseArea {
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.selectLeague("nt:" + root.ntFavorite)
+                }
+              }
+
               Repeater {
                 model: root.sortedLeagues
 
@@ -798,26 +958,32 @@ Panel {
             }
           }
 
-          // ===== Tabs: Bugün · Yarın · Sonuçlar · Puan Durumu
+          // ===== Tabs: dynamic (NT mode drops puan durumu; news appears when favourites/NT set)
           Row {
             x: Style.space(16)
             width: parent.width - Style.space(32)
             height: Style.space(38)
             spacing: Style.space(4)
 
+            readonly property var tabModel: {
+              var tabs = [
+                { id: 0, label: strings.t("tab.today") },
+                { id: 1, label: strings.t("tab.tomorrow") },
+                { id: 2, label: strings.t("tab.results") }
+              ];
+              if (!root.ntMode) tabs.push({ id: 3, label: strings.t("tab.table") });
+              if (root.favorites.length > 0 || root.ntFavorite !== "") tabs.push({ id: 4, label: strings.t("tab.news") });
+              return tabs;
+            }
+
             Repeater {
-              model: [
-                { label: strings.t("tab.today") },
-                { label: strings.t("tab.tomorrow") },
-                { label: strings.t("tab.results") },
-                { label: strings.t("tab.table") }
-              ]
+              model: parent.tabModel
 
               Item {
                 required property var modelData
                 required property int index
-                readonly property bool selected: index === root.activeTab
-                width: (panelColumn.width - Style.space(32) - Style.space(12)) / 4
+                readonly property bool selected: modelData.id === root.activeTab
+                width: (panelColumn.width - Style.space(32) - (parent.tabModel.length - 1) * Style.space(4)) / parent.tabModel.length
                 height: parent.height
 
                 Column {
@@ -844,7 +1010,7 @@ Panel {
                   anchors.fill: parent
                   hoverEnabled: true
                   cursorShape: Qt.PointingHandCursor
-                  onClicked: root.selectTab(index)
+                  onClicked: root.selectTab(modelData.id)
                 }
               }
             }
@@ -1701,8 +1867,8 @@ Panel {
           // ===== Matches list (tabs 0-2)
           Item {
             width: parent.width
-            visible: root.onboarded && !root.detailOpen && root.activeTab !== 3
-            implicitHeight: (root.onboarded && !root.detailOpen && root.activeTab !== 3) ? matchesContent.implicitHeight : 0
+            visible: root.onboarded && !root.detailOpen && root.activeTab !== 3 && root.activeTab !== 4
+            implicitHeight: (root.onboarded && !root.detailOpen && root.activeTab !== 3 && root.activeTab !== 4) ? matchesContent.implicitHeight : 0
 
             Column {
               id: matchesContent
@@ -1861,6 +2027,115 @@ Panel {
                   }
                 }
               }
+            }
+          }
+
+          // ===== News (tab 4, shown when favourites/NT set)
+          Item {
+            visible: root.activeTab === 4
+            width: parent.width
+            implicitHeight: root.activeTab === 4 ? newsContent.implicitHeight : 0
+
+            Column {
+              id: newsContent
+              width: parent.width
+              spacing: Style.space(4)
+
+              PlainText {
+                leftPadding: Style.space(16)
+                text: strings.t("tab.news").toUpperCase()
+                color: root.fgFaint
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 0.5
+                font.bold: true
+              }
+
+              Item {
+                visible: root.newsLoading && root.newsItems.length === 0
+                width: parent.width
+                height: Style.space(80)
+                PlainText {
+                  anchors.centerIn: parent
+                  text: strings.t("state.loading")
+                  color: root.fgDim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  font.italic: true
+                }
+              }
+
+              Item {
+                visible: root.newsError !== ""
+                width: parent.width
+                height: Style.space(60)
+                PlainText {
+                  anchors.centerIn: parent
+                  text: root.newsError
+                  color: "#e5a13d"
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                }
+              }
+
+              Repeater {
+                model: root.newsItems
+
+                Rectangle {
+                  required property var modelData
+                  required property int index
+                  width: parent.width
+                  height: newsRow.implicitHeight + Style.space(14)
+                  color: newsArea.containsMouse
+                    ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.08)
+                    : (index % 2 === 0 ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.03) : "transparent")
+
+                  Column {
+                    id: newsRow
+                    anchors.fill: parent
+                    anchors.leftMargin: Style.space(16)
+                    anchors.rightMargin: Style.space(16)
+                    anchors.topMargin: Style.space(8)
+                    anchors.bottomMargin: Style.space(8)
+                    spacing: 3
+
+                    PlainText {
+                      width: parent.width
+                      wrapMode: Text.Wrap
+                      maximumLineCount: 2
+                      elide: Text.ElideRight
+                      text: modelData.title
+                      color: root.fg
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                      font.bold: true
+                    }
+                    PlainText {
+                      width: parent.width
+                      text: {
+                        var d = new Date(modelData.pubDate);
+                        return isNaN(d.getTime()) ? modelData.pubDate : d.toLocaleDateString(root.localeTag, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+                      }
+                      color: root.fgFaint
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                  }
+
+                  MouseArea {
+                    id: newsArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                      var safe = String(modelData.link).replace(/[^A-Za-z0-9._~:\/?&=%#+-]/g, "");
+                        root.bar.run("xdg-open '" + safe + "'");
+                    }
+                  }
+                }
+              }
+
+              Item { width: 1; height: Style.space(4) }
             }
           }
 

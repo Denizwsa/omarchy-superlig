@@ -48,5 +48,7 @@
   "onb.skip": "Passer",
   "onb.save": "Enregistrer",
   "onb.search": "Chercher des équipes…",
-  "onb.done": "C'est fait"
+  "onb.done": "C'est fait",
+  "nt.chip": "National team",
+  "tab.news": "News"
 }

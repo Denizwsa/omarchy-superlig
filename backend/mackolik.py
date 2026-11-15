@@ -6,7 +6,8 @@
 # On failure prints { "error": "..." } and exits 1.
 # No third-party dependencies; stdlib only.
 
-import sys, os, re, json, html as htmllib, time, urllib.request, urllib.error
+import sys, os, re, json, html as htmllib, time, urllib.request, urllib.error, urllib.parse
+import xml.etree.ElementTree as ET
 
 MAX_BYTES = 12 * 1024 * 1024
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
@@ -214,12 +215,43 @@ def parse_match_page(page):
     return out
 
 
+
+def fetch_news(query):
+    q = urllib.parse.quote(query)
+    url = "https://news.google.com/rss/search?q=site:mackolik.com+%s&hl=tr&gl=TR&ceid=TR:tr" % q
+    raw = fetch(url)
+    try:
+        root = ET.fromstring(raw)
+    except Exception as e:
+        fail("rss parse: %s" % e)
+    items = []
+    for item in root.iter("item"):
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        pub = (item.findtext("pubDate") or "").strip()
+        source = (item.findtext("source") or "").strip()
+        if not title or not link:
+            continue
+        # title comes as "Headline - Mackolik.com | Mackolik.com"
+        title = title.rsplit(" - ", 1)[0].strip() if " - " in title else title
+        items.append({"title": title, "link": link, "pubDate": pub, "source": source})
+        if len(items) >= 15:
+            break
+    return items
+
+
 def main():
     if len(sys.argv) < 3:
         fail("usage: mackolik.py all <competition_id> | mackolik.py match <match_id>")
 
     mode = sys.argv[1]
     target = sys.argv[2].strip()
+
+    if mode == "news":
+        if not re.fullmatch(r".{2,80}", target):
+            fail("bad query")
+        print(json.dumps({"query": target, "items": fetch_news(target)}, ensure_ascii=False))
+        return
 
     if mode == "all":
         if not re.fullmatch(r"[A-Za-z0-9]{10,40}", target):

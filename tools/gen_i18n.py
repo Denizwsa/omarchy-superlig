@@ -29,7 +29,9 @@ T["en"] = {
   "onb.welcome": "Welcome to Futbol", "onb.language": "Choose your language",
   "onb.favorites": "Choose your favourite teams", "onb.nt": "Choose your national team",
   "onb.continue": "Continue", "onb.skip": "Skip", "onb.save": "Save", "onb.search": "Search teams…",
-  "onb.done": "All set"
+  "onb.done": "All set",
+  "nt.chip": "National team",
+  "tab.news": "News"
 }
 T["tr"] = {
   "panel.title": "Futbol",
@@ -51,7 +53,9 @@ T["tr"] = {
   "onb.welcome": "Futbol'a hoş geldin", "onb.language": "Dilini seç",
   "onb.favorites": "Favori takımlarını seç", "onb.nt": "Millî takımını seç",
   "onb.continue": "Devam", "onb.skip": "Atla", "onb.save": "Kaydet", "onb.search": "Takım ara…",
-  "onb.done": "Hazır"
+  "onb.done": "Hazır",
+  "nt.chip": "Millî Takım",
+  "tab.news": "Haberler"
 }
 
 T["es"] = {
