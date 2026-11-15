@@ -217,8 +217,10 @@ def parse_match_page(page):
 
 
 def fetch_news(query):
-    q = urllib.parse.quote(query)
-    url = "https://news.google.com/rss/search?q=site:mackolik.com+%s&hl=tr&gl=TR&ceid=TR:tr" % q
+    # Bing News RSS: source URLs embedded in the apiclick wrapper are directly
+    # recoverable, so in-panel article view works without opening a browser.
+    q = urllib.parse.quote("site:mackolik.com " + query)
+    url = "https://www.bing.com/news/search?q=%s&format=rss" % q
     raw = fetch(url)
     try:
         root = ET.fromstring(raw)
@@ -229,15 +231,58 @@ def fetch_news(query):
         title = (item.findtext("title") or "").strip()
         link = (item.findtext("link") or "").strip()
         pub = (item.findtext("pubDate") or "").strip()
-        source = (item.findtext("source") or "").strip()
         if not title or not link:
             continue
-        # title comes as "Headline - Mackolik.com | Mackolik.com"
-        title = title.rsplit(" - ", 1)[0].strip() if " - " in title else title
-        items.append({"title": title, "link": link, "pubDate": pub, "source": source})
+        # Bing wraps mackolik.com URLs in an apiclick redirector with url=<encoded>.
+        target = link
+        if "url=" in link:
+            target = urllib.parse.unquote(link.split("url=")[-1].split("&")[0])
+        if not target.startswith("http"):
+            continue
+        title = re.sub(r"\s+", " ", title).strip()
+        items.append({"title": title, "link": target, "pubDate": pub, "source": "Mackolik"})
         if len(items) >= 15:
             break
     return items
+
+
+ALLOWED_ARTICLE_HOSTS = {"www.mackolik.com", "mackolik.com", "arsiv.mackolik.com"}
+
+
+def fetch_article(url):
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    if host not in ALLOWED_ARTICLE_HOSTS:
+        fail("unsupported host: %s" % host)
+    page = fetch(url)
+    text = page
+
+    def meta(prop):
+        m = re.search(r'<meta[^>]+(?:property|name)="%s"[^>]+content="([^"]*)"' % re.escape(prop), text, re.I)
+        return htmllib.unescape(m.group(1)).strip() if m else ""
+
+    title = meta("og:title") or re.findall(r"<title>(.*?)</title>", text, re.S)[0] if re.findall(r"<title>(.*?)</title>", text, re.S) else ""
+    title = re.sub(r"\s*[|@]\s*Mackolik\.com\s*$", "", htmllib.unescape(title)).strip()
+
+    image = meta("og:image")
+    published = meta("article:published_time") or meta("datePublished") or meta("og:updated_time")
+
+    # Paragraphs live in the articleBody block; strip tags and keep plain text.
+    i = text.find("articleBody")
+    zone = text[i:] if i != -1 else text
+    body_end = zone.find("</body>")
+    if body_end != -1:
+        zone = zone[:body_end]
+    paragraphs = []
+    for m in re.finditer(r"<p[^>]*>(.*?)</p>", zone, re.S | re.I):
+        p = re.sub(r"<[^>]+>", "", m.group(1))
+        p = htmllib.unescape(p)
+        p = re.sub(r"\s+", " ", p).strip()
+        if len(p) >= 30:
+            paragraphs.append(p[:800])
+        if len(paragraphs) >= 40:
+            break
+
+    return {"title": title, "image": image, "published": published, "paragraphs": paragraphs}
 
 
 def main():
@@ -251,6 +296,10 @@ def main():
         if not re.fullmatch(r".{2,80}", target):
             fail("bad query")
         print(json.dumps({"query": target, "items": fetch_news(target)}, ensure_ascii=False))
+        return
+
+    if mode == "article":
+        print(json.dumps(fetch_article(target), ensure_ascii=False))
         return
 
     if mode == "all":

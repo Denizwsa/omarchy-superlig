@@ -649,12 +649,32 @@ Panel {
   property bool newsLoading: false
   property string newsError: ""
 
+  // In-panel article view state
+  property var article: null
+  property bool articleLoading: false
+  property string articleError: ""
+
   function refreshNews() {
     var query = root.ntMode ? Model.ntMkName(root.ntCode) : (root.favorites.length > 0 && root.favoriteNames.length > 0 ? root.favoriteNames[0] : (root.ntFavorite ? Model.ntMkName(root.ntFavorite) : Model.leagueShort(root.leagueId)));
     if (!query) return;
     newsLoading = true;
     newsProc.command = ["/usr/bin/python3", root.backendPath, "news", query];
     newsProc.running = true;
+  }
+
+  function openArticle(item) {
+    if (!item || !item.link) return;
+    article = null;
+    articleError = "";
+    articleLoading = true;
+    articleProc.command = ["/usr/bin/python3", root.backendPath, "article", item.link];
+    articleProc.running = true;
+  }
+
+  function closeArticle() {
+    article = null;
+    articleError = "";
+    articleLoading = false;
   }
 
   Process {
@@ -681,6 +701,32 @@ Panel {
         }
         root.newsItems = out;
         root.newsError = "";
+      }
+    }
+  }
+
+  Process {
+    id: articleProc
+    command: ["/usr/bin/python3", root.backendPath, "article", "https://www.mackolik.com/"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.articleLoading = false;
+        var parsed = Model.parseJson(String(text || ""));
+        if (!parsed || parsed.error) { root.articleError = strings.t("state.error"); return; }
+        var paragraphs = [];
+        var raw = Array.isArray(parsed.paragraphs) ? parsed.paragraphs : [];
+        for (var i = 0; i < raw.length && paragraphs.length < 40; i++)
+          paragraphs.push(Model.clean(raw[i], 900));
+        var img = String(parsed.image || "");
+        if (img.indexOf("https://") !== 0 || img.indexOf("@") !== -1) img = "";
+        root.article = {
+          title: Model.clean(parsed.title, 200),
+          image: img,
+          published: Model.clean(parsed.published, 40),
+          paragraphs: paragraphs
+        };
+        root.articleError = "";
       }
     }
   }
@@ -721,7 +767,7 @@ Panel {
       anchors.fill: parent
       blocked: false
       onReturnRequested: root.refreshAll(true)
-      onCloseRequested: { if (root.detailOpen) root.closeDetail(); else root.close(); }
+      onCloseRequested: { if (root.article) root.closeArticle(); else if (root.detailOpen) root.closeDetail(); else root.close(); }
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onMoveRequested: function(dx, dy) {
         var maxY = Math.max(0, flick.contentHeight - flick.height);
@@ -729,7 +775,7 @@ Panel {
       }
       onTextKey: function(t, modifiers) {
         if (t === "r") root.refreshAll(true);
-        else if (t === "b") { if (root.detailOpen) root.closeDetail(); }
+        else if (t === "b") { if (root.article) root.closeArticle(); else if (root.detailOpen) root.closeDetail(); }
         else if (t === "1") root.selectTab(0);
         else if (t === "2") root.selectTab(1);
         else if (t === "3") root.selectTab(2);
@@ -1864,11 +1910,147 @@ Panel {
             }
           }
 
+          // ===== In-panel article view
+          Item {
+            visible: root.article !== null || root.articleLoading || root.articleError !== ""
+            width: parent.width
+            implicitHeight: (root.article !== null || root.articleLoading || root.articleError !== "") ? articleContent.implicitHeight : 0
+
+            Column {
+              id: articleContent
+              width: parent.width
+              spacing: Style.space(10)
+
+              Item {
+                width: parent.width
+                height: Style.space(32)
+
+                PlainText {
+                  id: articleBackText
+                  anchors.left: parent.left
+                  anchors.leftMargin: Style.space(16)
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: strings.t("detail.back")
+                  color: articleBackArea.containsMouse ? root.accent : root.fgDim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  font.bold: true
+                }
+                MouseArea {
+                  id: articleBackArea
+                  anchors.fill: articleBackText
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.closeArticle()
+                }
+                PlainText {
+                  anchors.right: parent.right
+                  anchors.rightMargin: Style.space(16)
+                  anchors.verticalCenter: parent.verticalCenter
+                  visible: root.article && root.article.published !== ""
+                  text: root.article ? root.article.published : ""
+                  color: root.fgFaint
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+              }
+
+              Item {
+                visible: root.articleLoading && root.article === null
+                width: parent.width
+                height: Style.space(80)
+                PlainText {
+                  anchors.centerIn: parent
+                  text: strings.t("state.loading")
+                  color: root.fgDim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  font.italic: true
+                }
+              }
+
+              Item {
+                visible: root.articleError !== ""
+                width: parent.width
+                height: Style.space(50)
+                PlainText {
+                  anchors.centerIn: parent
+                  text: root.articleError
+                  color: "#e5a13d"
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                }
+              }
+
+              Column {
+                visible: !!root.article
+                width: parent.width
+                spacing: Style.space(10)
+
+                PlainText {
+                  leftPadding: Style.space(18)
+                  rightPadding: Style.space(18)
+                  width: parent.width
+                  wrapMode: Text.Wrap
+                  text: root.article ? root.article.title : ""
+                  color: root.fg
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.title
+                  font.bold: true
+                }
+
+                Image {
+                  visible: root.article && root.article.image !== "" && status !== Image.Error
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  width: parent.width - Style.space(36)
+                  height: Math.min(220, width * 0.56)
+                  source: root.article ? root.article.image : ""
+                  sourceSize: Qt.size(880, 440)
+                  fillMode: Image.PreserveAspectCrop
+                  asynchronous: true
+                  cache: true
+                }
+
+                Flickable {
+                  width: parent.width
+                  height: Style.space(340)
+                  contentWidth: width
+                  contentHeight: articleBodyColumn.implicitHeight
+                  clip: true
+                  boundsBehavior: Flickable.StopAtBounds
+
+                  Column {
+                    id: articleBodyColumn
+                    width: parent.width
+                    spacing: Style.space(10)
+
+                    Repeater {
+                      model: root.article ? root.article.paragraphs : []
+                      PlainText {
+                        required property var modelData
+                        width: parent.width - Style.space(36)
+                        x: Style.space(18)
+                        wrapMode: Text.Wrap
+                        text: modelData
+                        color: root.fg
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.body
+                        lineHeight: 1.35
+                      }
+                    }
+
+                    Item { width: 1; height: Style.space(6) }
+                  }
+                }
+              }
+            }
+          }
+
           // ===== Matches list (tabs 0-2)
           Item {
             width: parent.width
-            visible: root.onboarded && !root.detailOpen && root.activeTab !== 3 && root.activeTab !== 4
-            implicitHeight: (root.onboarded && !root.detailOpen && root.activeTab !== 3 && root.activeTab !== 4) ? matchesContent.implicitHeight : 0
+            visible: root.onboarded && !root.detailOpen && !root.article && root.activeTab !== 3 && root.activeTab !== 4
+            implicitHeight: (root.onboarded && !root.detailOpen && !root.article && root.activeTab !== 3 && root.activeTab !== 4) ? matchesContent.implicitHeight : 0
 
             Column {
               id: matchesContent
@@ -2032,9 +2214,9 @@ Panel {
 
           // ===== News (tab 4, shown when favourites/NT set)
           Item {
-            visible: root.activeTab === 4
+            visible: !root.article && root.activeTab === 4
             width: parent.width
-            implicitHeight: root.activeTab === 4 ? newsContent.implicitHeight : 0
+            implicitHeight: (!root.article && root.activeTab === 4) ? newsContent.implicitHeight : 0
 
             Column {
               id: newsContent
@@ -2127,10 +2309,7 @@ Panel {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                      var safe = String(modelData.link).replace(/[^A-Za-z0-9._~:\/?&=%#+-]/g, "");
-                        root.bar.run("xdg-open '" + safe + "'");
-                    }
+                    onClicked: root.openArticle(modelData)
                   }
                 }
               }
@@ -2141,9 +2320,9 @@ Panel {
 
           // ===== Standings table (tab 3)
           Item {
-            visible: root.onboarded && !root.detailOpen && root.activeTab === 3
+            visible: root.onboarded && !root.detailOpen && !root.article && root.activeTab === 3
             width: parent.width
-            implicitHeight: (root.onboarded && !root.detailOpen && root.activeTab === 3) ? tableContent.implicitHeight : 0
+            implicitHeight: (root.onboarded && !root.detailOpen && !root.article && root.activeTab === 3) ? tableContent.implicitHeight : 0
 
             Column {
               id: tableContent

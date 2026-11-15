@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "id": "superlig.futbol",
   "name": "Futbol",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "Justcallme-wsa",
   "license": "MIT",
   "homepage": "https://github.com/Denizwsa/omarchy-superlig",
-  "description": "Football scores, fixtures and standings in the Omarchy bar and a popup panel: live minute:second, 20+ leagues + UEFA Nations League for your NT, favourites + NT crests in the pill, first-run onboarding, 50 languages, favourite-club news (mackolik via Google News) (mackolik.com)",
+  "description": "Football scores, fixtures and standings in the Omarchy bar and a popup panel: live minute:second, 20+ leagues + UEFA Nations League NT, favourites + NT crests in the pill, in-panel news reader (Bing RSS + mackolik articles), first-run onboarding, 50 languages (mackolik.com)",
   "kinds": [
     "bar-widget"
   ],

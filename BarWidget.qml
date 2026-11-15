@@ -114,7 +114,8 @@ BarWidget {
     for (var i = 0; i < feedMatches.length; i++) {
       var m = feedMatches[i];
       if (!m.live && !m.finished) continue;
-      if (m.date !== today) continue;
+      // Live matches show up even on the midnight crossover; finished ones only when same-day.
+      if (!m.live && m.date !== today) continue;
       var isClubFav = root.favorites.indexOf(String(m.homeId)) !== -1 || root.favorites.indexOf(String(m.awayId)) !== -1;
       var isNtFav = root.ntFavorite !== "" && (m.home === ntName || m.away === ntName);
       if (isNtFav) {
