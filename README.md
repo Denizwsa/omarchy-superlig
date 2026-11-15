@@ -25,6 +25,12 @@ Uninstall:
 omarchy plugin remove superlig.futbol
 ```
 
+## Dependencies
+
+- Omarchy shell (Quickshell) — plugin runtime, no extra packages to install
+- `curl` — shipped with Omarchy
+- `python3` standard library only — no pip, nothing to install
+
 ## Data source
 
 Data comes from public pages and endpoints on **mackolik.com** (this plugin is unofficial and not affiliated with mackolik). League tables and full-season fixtures come from the league page (`/r/lig/<id>`), live state from the daily livescores JSON. Requests happen **only when the panel is opened and while it stays open** (auto-refresh every N minutes, default 10) — roughly 1–4 requests per refresh, ~4–5 MB per league load. No traffic runs in the background when the panel is closed. A polite UA is sent and failed requests retry with backoff; last good data stays on screen.
